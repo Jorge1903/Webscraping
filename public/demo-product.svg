@@ -1,0 +1,9 @@
+<svg width="640" height="640" viewBox="0 0 640 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="640" rx="32" fill="#F0F4F8"/>
+  <circle cx="320" cy="320" r="218" fill="#DCEAF5"/>
+  <path d="M178 331C178 246 241 179 320 179C399 179 462 246 462 331" stroke="#195D8A" stroke-width="36" stroke-linecap="round"/>
+  <rect x="142" y="318" width="86" height="156" rx="34" fill="#1D926C"/>
+  <rect x="412" y="318" width="86" height="156" rx="34" fill="#1D926C"/>
+  <path d="M236 452C260 474 289 486 320 486C351 486 380 474 404 452" stroke="#195D8A" stroke-width="24" stroke-linecap="round"/>
+  <text x="320" y="570" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#19202A">MAXUN</text>
+</svg>

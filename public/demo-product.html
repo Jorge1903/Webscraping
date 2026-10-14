@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta property="og:title" content="Audifonos Maxun Pulse Demo" />
+    <meta property="og:image" content="/demo-product.svg" />
+    <meta property="product:price:amount" content="$1,299 MXN" />
+    <title>Audifonos Maxun Pulse Demo</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Audifonos Maxun Pulse Demo",
+        "image": "/demo-product.svg",
+        "offers": {
+          "@type": "Offer",
+          "priceCurrency": "MXN",
+          "price": "1299"
+        }
+      }
+    </script>
+    <style>
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #182333;
+      }
+
+      main {
+        width: min(760px, calc(100% - 32px));
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 28px;
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid #dfe5ee;
+        border-radius: 8px;
+        padding: 28px;
+      }
+
+      img {
+        width: 100%;
+      }
+
+      .price {
+        font-size: 2rem;
+        font-weight: 800;
+        color: #195d8a;
+      }
+
+      @media (max-width: 680px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="product-image" src="/demo-product.svg" alt="Audifonos Maxun Pulse Demo" />
+      <section>
+        <h1 class="product-title">Audifonos Maxun Pulse Demo</h1>
+        <p class="price">$1,299 MXN</p>
+        <p>Producto local de prueba para validar el extractor sin usar una tienda externa.</p>
+      </section>
+    </main>
+  </body>
+</html>
