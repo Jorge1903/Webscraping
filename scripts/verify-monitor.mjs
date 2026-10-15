@@ -61,6 +61,10 @@ try {
   assert.throws(() => selectedValues('<p>Otro</p>', { price: '.missing' }, source), /ya no existe/);
   const sanitized = safePreview('<base href="https://bad.test"><meta http-equiv="refresh" content="0;url=https://bad.test"><img src="x" onerror="alert(1)"><iframe src="x"></iframe>', source);
   assert.ok(!sanitized.includes('onerror')); assert.ok(!sanitized.includes('<iframe')); assert.ok(!sanitized.includes('refresh'));
+  const mobilePreview = safePreview('<meta name="viewport" content="width=1200, user-scalable=no"><main>Producto</main>', source);
+  assert.equal((mobilePreview.match(/name="viewport"/g) || []).length, 1);
+  assert.ok(mobilePreview.includes('width=device-width, initial-scale=1'));
+  assert.ok(!mobilePreview.includes('user-scalable=no'));
   const payload = { title: 'Prueba real', url: source, selectors, intervalMinutes: 5, visibleFields: ['name', 'price', 'availability'], active: true };
   assert.equal((await api('/api/jobs', 'POST', { ...payload, intervalMinutes: 10 })).status, 400);
   const created = await api('/api/jobs', 'POST', payload);

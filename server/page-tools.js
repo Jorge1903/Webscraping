@@ -65,6 +65,9 @@ export function safePreview(html, sourceUrl) {
     }
   });
   $('head').prepend($('<base>').attr('href', sourceUrl));
+  $('meta[name="viewport" i]').remove();
+  $('head').append('<meta name="viewport" content="width=device-width, initial-scale=1">');
+  $('head').append('<style>html{width:100%;}body{margin-inline:0;}img,video,picture{max-width:100%;height:auto;}input,select,textarea{max-width:100%;}*{box-sizing:border-box;}</style>');
   $('head').append(`<style>html{color-scheme:dark}html,body{min-height:100%;background:#0d121c!important;color:#e6edf6!important;}body{overflow:auto!important;}body *:not(img):not(svg):not(svg *){background-color:transparent!important;color:inherit!important;border-color:#2b3546!important;}*{cursor:crosshair!important;scrollbar-color:#3b4b63 #101723;}[data-monitor-auto]{outline:2px solid #47c9ae!important;outline-offset:2px!important;}[data-monitor-hover]{outline:3px solid #94a7ff!important;outline-offset:2px!important;background-color:rgba(148,167,255,.12)!important;}[data-monitor-selected]{outline:3px solid #a9b7ff!important;outline-offset:2px!important;}</style>`);
   return $.html();
 }
