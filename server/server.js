@@ -1,3 +1,4 @@
+import { safePreview, selectedValues, normalizeSelectors, recognizeFields, htmlText } from "./page-tools.js";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import http from "node:http";
@@ -8,11 +9,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
-const DB_PATH = path.join(ROOT_DIR, "data", "db.json");
+const DB_PATH = process.env.MONITOR_DB_PATH || path.join(ROOT_DIR, "data", "db.json");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-const SCHEDULER_TICK_MS = 30 * 1000;
-const ALLOWED_INTERVALS = new Set([5, 10, 30]);
+const SCHEDULER_TICK_MS = 1000;
+const ALLOWED_INTERVALS = new Set([5]);
 const DEFAULT_VISIBLE_FIELDS = ["pagePreview", "image", "name", "price", "currency", "availability", "description", "checkedAt", "history"];
 const ALLOWED_VISIBLE_FIELDS = new Set([...DEFAULT_VISIBLE_FIELDS, "sourceUrl"]);
 let saveQueue = Promise.resolve();
@@ -31,9 +32,8 @@ async function ensureDb() {
     db = { ...db, ...JSON.parse(raw) };
     for (const job of db.jobs) {
       delete job.running;
-      if (Array.isArray(job.visibleFields) && !job.visibleFields.includes("pagePreview")) {
-        job.visibleFields = ["pagePreview", ...job.visibleFields];
-      }
+      job.intervalMinutes = 5;
+
     }
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
@@ -94,15 +94,7 @@ function parsePrice(value) {
   return Number.isFinite(amount) ? amount : null;
 }
 
-function decodeEntities(value) {
-  return cleanString(value)
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">");
-}
+function decodeEntities(value) { return cleanString(htmlText(value)); }
 
 function stripTags(html) {
   return decodeEntities(
@@ -160,23 +152,19 @@ function getUserFromRequest(req) {
 function requireUser(req, res) {
   const user = getUserFromRequest(req);
   if (!user) {
-    sendJson(res, 401, { error: "Necesitas iniciar sesion." });
+    sendJson(res, 401, { error: "Necesitas iniciar sesión." });
     return null;
   }
   return user;
 }
 
 function absolutize(url, baseUrl) {
+  if (!url) return "";
   try {
     return new URL(url, baseUrl).toString();
   } catch {
     return url || "";
   }
-}
-
-function getAttribute(html, attr) {
-  const match = String(html || "").match(new RegExp(`\\b${attr}\\s*=\\s*["']([^"']+)["']`, "i"));
-  return match ? decodeEntities(match[1]) : "";
 }
 
 function metaContent(html, names) {
@@ -214,20 +202,20 @@ function buildPreviewErrorPage(message, sourceUrl = "") {
         padding: 28px;
         box-sizing: border-box;
         font-family: Arial, sans-serif;
-        color: #253044;
-        background: #f4f7fb;
+        color: #e8edf5;
+        background: #0d121c;
       }
       main {
         max-width: 640px;
-        border: 1px solid #d7e0ea;
+        border: 1px solid #2b3546;
         border-radius: 14px;
-        background: #fff;
+        background: #141d2b;
         padding: 28px;
         box-shadow: 0 18px 48px rgba(19, 30, 48, 0.12);
       }
       h1 { margin: 0 0 10px; font-size: 24px; }
-      p { margin: 0; color: #5c6879; line-height: 1.5; }
-      a { display: inline-block; margin-top: 16px; color: #095268; font-weight: 700; }
+      p { margin: 0; color: #a6b6cc; line-height: 1.5; }
+      a { display: inline-block; margin-top: 16px; color: #86d7c2; font-weight: 700; }
     </style>
   </head>
   <body>
@@ -240,31 +228,7 @@ function buildPreviewErrorPage(message, sourceUrl = "") {
 </html>`;
 }
 
-function buildPreviewDocument(html, sourceUrl) {
-  const baseTag = `<base href="${sourceUrl}">`;
-  const safeHtml = String(html || "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, "")
-    .replace(/<meta[^>]+http-equiv=["']content-security-policy["'][^>]*>/gi, "")
-    .replace(/<meta[^>]+content=["'][^"']*content-security-policy[^"']*["'][^>]*>/gi, "")
-    .replace(/<form\b/gi, "<div data-preview-form")
-    .replace(/<\/form>/gi, "</div>");
-
-  const previewStyle = `<style>
-    html, body { min-height: 100%; }
-    body { pointer-events: none !important; overflow: hidden !important; }
-    a, button, input, select, textarea { pointer-events: none !important; }
-    img, picture, video { max-width: 100%; }
-    * { scrollbar-width: none !important; }
-    *::-webkit-scrollbar { display: none !important; }
-  </style>`;
-
-  if (/<head[^>]*>/i.test(safeHtml)) {
-    return safeHtml.replace(/<head([^>]*)>/i, `<head$1>${baseTag}${previewStyle}`);
-  }
-
-  return `<!doctype html><html><head>${baseTag}${previewStyle}</head><body>${safeHtml}</body></html>`;
-}
+function buildPreviewDocument(html, sourceUrl) { return safePreview(html, sourceUrl); }
 
 async function fetchPagePreview(targetUrl) {
   if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
@@ -279,57 +243,24 @@ async function fetchPagePreview(targetUrl) {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "accept-language": "es-MX,es;q=0.9,en;q=0.7"
       },
+      signal: AbortSignal.timeout(25000),
       redirect: "follow"
     });
   } catch {
-    throw new Error("La tienda no dejo abrir la pagina desde el servidor local.");
+    throw new Error("La tienda no dejó abrir la página desde el servidor local.");
   }
 
   if (!response.ok) {
-    throw new Error(`La tienda respondio ${response.status}.`);
+    throw new Error(`La tienda respondió ${response.status}.`);
   }
 
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
-    throw new Error("La URL no devolvio una pagina HTML.");
+    throw new Error("La URL no devolvió una página HTML.");
   }
 
   const html = await response.text();
   return buildPreviewDocument(html, response.url || targetUrl);
-}
-
-function firstMatch(html, regex) {
-  const match = html.match(regex);
-  return match ? match[0] : "";
-}
-
-function findElement(html, selector) {
-  if (!selector) return "";
-  const trimmed = selector.trim();
-
-  if (trimmed.includes(" ")) {
-    return trimmed.split(/\s+/).reduce((currentHtml, part) => findElement(currentHtml, part), html);
-  }
-
-  if (trimmed.startsWith("#")) {
-    const id = trimmed.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return firstMatch(html, new RegExp(`<([a-z0-9-]+)(?=[^>]*\\bid=["']${id}["'])[^>]*>[\\s\\S]*?<\\/\\1>`, "i")) ||
-      firstMatch(html, new RegExp(`<[a-z0-9-]+(?=[^>]*\\bid=["']${id}["'])[^>]*\\/?>`, "i"));
-  }
-
-  if (trimmed.startsWith(".")) {
-    const className = trimmed.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return firstMatch(html, new RegExp(`<([a-z0-9-]+)(?=[^>]*\\bclass=["'][^"']*\\b${className}\\b[^"']*["'])[^>]*>[\\s\\S]*?<\\/\\1>`, "i")) ||
-      firstMatch(html, new RegExp(`<[a-z0-9-]+(?=[^>]*\\bclass=["'][^"']*\\b${className}\\b[^"']*["'])[^>]*\\/?>`, "i"));
-  }
-
-  const tag = trimmed.match(/^[a-z][a-z0-9-]*/i)?.[0];
-  if (tag) {
-    return firstMatch(html, new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, "i")) ||
-      firstMatch(html, new RegExp(`<${tag}\\b[^>]*\\/?>`, "i"));
-  }
-
-  return "";
 }
 
 function collectJsonLdItems(value) {
@@ -380,56 +311,61 @@ async function scrapeHtml(job) {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "accept-language": "es-MX,es;q=0.9,en;q=0.7"
       },
+      signal: AbortSignal.timeout(25000),
       redirect: "follow"
     });
   } catch {
-    throw new Error("No se pudo abrir la pagina desde el servidor. Puede ser bloqueo de la tienda, DNS/red local o proteccion anti-bots.");
+    throw new Error("No se pudo abrir la página desde el servidor. Puede ser bloqueo de la tienda, DNS/red local o protección anti-bots.");
   }
 
   if (!response.ok) {
-    throw new Error(`La pagina respondio ${response.status}`);
+    throw new Error(`La página respondió ${response.status}`);
   }
 
   const html = await response.text();
   const jsonLd = extractJsonLdProduct(html);
-  const nameElement = findElement(html, job.selectors.name);
-  const priceElement = findElement(html, job.selectors.price);
-  const imageElement = findElement(html, job.selectors.image);
+  const selected = selectedValues(html, job.selectors, response.url);
+  const recognized = recognizeFields(html, response.url);
   const pageText = stripTags(html).slice(0, 20000);
 
   const name =
-    stripTags(nameElement) ||
+    selected.name ||
     jsonLd.name ||
+    recognized.values.name ||
     metaContent(html, ["og:title", "twitter:title"]) ||
     titleContent(html);
   const rawPrice =
-    stripTags(priceElement) ||
+    selected.price ||
     jsonLd.price ||
+    recognized.values.price ||
     metaContent(html, ["product:price:amount", "og:price:amount", "twitter:data1"]) ||
     extractPriceFromText(pageText);
   const image =
-    getAttribute(imageElement, "src") ||
-    getAttribute(imageElement, "data-src") ||
-    getAttribute(imageElement, "content") ||
+    selected.image ||
     jsonLd.image ||
+    recognized.values.image ||
     metaContent(html, ["og:image", "twitter:image"]);
 
-  const finalPrice = cleanString(jsonLd.currency && rawPrice && !rawPrice.includes(jsonLd.currency) ? `${jsonLd.currency} ${rawPrice}` : rawPrice) || "Precio no detectado";
+  const currency = selected.currency || jsonLd.currency || recognized.values.currency || metaContent(html, ["product:price:currency", "og:price:currency"]);
+  const finalPrice = cleanString(currency && rawPrice && !rawPrice.includes(currency) ? `${currency} ${rawPrice}` : rawPrice) || "Precio no detectado";
 
   return {
-    name: cleanString(name) || "Nombre no detectado",
+    name: decodeEntities(name) || "Nombre no detectado",
     price: finalPrice,
     priceValue: parsePrice(finalPrice),
-    currency: cleanString(jsonLd.currency || metaContent(html, ["product:price:currency", "og:price:currency"])),
-    availability: cleanString(jsonLd.availability || metaContent(html, ["product:availability", "og:availability"])),
-    description: cleanString(jsonLd.description || metaContent(html, ["og:description", "twitter:description", "description"])),
+    currency: cleanString(selected.currency || jsonLd.currency || recognized.values.currency || metaContent(html, ["product:price:currency", "og:price:currency"])),
+    availability: cleanString(selected.availability || jsonLd.availability || recognized.values.availability || metaContent(html, ["product:availability", "og:availability"])),
+    description: decodeEntities(selected.description || jsonLd.description || recognized.values.description || metaContent(html, ["og:description", "twitter:description", "description"])),
     image: absolutize(image, job.url),
     sourceUrl: response.url,
+    detectedSelectors: recognized.selectors,
     checkedAt: new Date().toISOString()
   };
 }
 
 async function runJob(job) {
+  if (job.running) return null;
+  job.running = true;
   const startedAt = new Date().toISOString();
   try {
     const data = await scrapeHtml(job);
@@ -463,37 +399,34 @@ async function runJob(job) {
     await saveDb();
     return result;
   }
+  finally { delete job.running; }
 }
 
 function serializeJob(job) {
   return {
     ...job,
     visibleFields: normalizeVisibleFields(job.visibleFields),
-    results: db.results.filter((result) => result.jobId === job.id).slice(0, 12)
+    results: db.results.filter((result) => result.jobId === job.id).slice(0, 100)
   };
 }
 
 function normalizeVisibleFields(fields) {
   if (!Array.isArray(fields)) return DEFAULT_VISIBLE_FIELDS;
   const cleanFields = fields.filter((field) => ALLOWED_VISIBLE_FIELDS.has(field));
-  return cleanFields.length ? [...new Set(cleanFields)] : DEFAULT_VISIBLE_FIELDS;
+  return [...new Set(cleanFields)];
 }
 
 function validateJobPayload(payload) {
   const intervalMinutes = Number(payload.intervalMinutes);
-  if (!payload.title || cleanString(payload.title).length < 2) throw new Error("Pon un nombre para este monitoreo.");
+  if (!payload.title || cleanString(payload.title).length < 2) throw new Error("Escribe un nombre para este monitoreo.");
   if (!payload.url || !/^https?:\/\//i.test(payload.url)) throw new Error("La URL debe iniciar con http:// o https://.");
-  if (!ALLOWED_INTERVALS.has(intervalMinutes)) throw new Error("El intervalo debe ser 5, 10 o 30 minutos.");
+  if (!ALLOWED_INTERVALS.has(intervalMinutes)) throw new Error("El intervalo debe ser de 5 minutos.");
   return {
     title: cleanString(payload.title),
     url: payload.url.trim(),
     intervalMinutes,
     mode: "html",
-    selectors: {
-      name: cleanString(payload.selectors?.name),
-      price: cleanString(payload.selectors?.price),
-      image: cleanString(payload.selectors?.image)
-    },
+    selectors: normalizeSelectors(payload.selectors),
     visibleFields: normalizeVisibleFields(payload.visibleFields),
     targetPrice: parsePrice(payload.targetPrice),
     active: payload.active !== false
@@ -506,11 +439,7 @@ function validatePreviewPayload(payload) {
     id: "preview",
     url: payload.url.trim(),
     mode: "html",
-    selectors: {
-      name: cleanString(payload.selectors?.name),
-      price: cleanString(payload.selectors?.price),
-      image: cleanString(payload.selectors?.image)
-    }
+    selectors: normalizeSelectors(payload.selectors)
   };
 }
 
@@ -520,7 +449,7 @@ async function handleApi(req, res, url) {
     const email = cleanString(payload.email).toLowerCase();
     const password = String(payload.password || "");
     if (!email.includes("@") || password.length < 8) {
-      return sendJson(res, 400, { error: "Usa un correo valido y contrasena de minimo 8 caracteres." });
+      return sendJson(res, 400, { error: "Usa un correo válido y contraseña de mínimo 8 caracteres." });
     }
     if (db.users.some((user) => user.email === email)) {
       return sendJson(res, 409, { error: "Ese correo ya existe." });
@@ -538,7 +467,7 @@ async function handleApi(req, res, url) {
     const email = cleanString(payload.email).toLowerCase();
     const user = db.users.find((item) => item.email === email);
     if (!user || !verifyPassword(String(payload.password || ""), user.passwordHash)) {
-      return sendJson(res, 401, { error: "Correo o contrasena incorrectos." });
+      return sendJson(res, 401, { error: "Correo o contraseña incorrectos." });
     }
     const token = createSession(user.id);
     await saveDb();
@@ -571,14 +500,16 @@ async function handleApi(req, res, url) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
-        "x-frame-options": "SAMEORIGIN"
+        "x-frame-options": "SAMEORIGIN",
+        "content-security-policy": "sandbox allow-same-origin; script-src 'none'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"
       });
       return res.end(html);
     } catch (error) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
-        "x-frame-options": "SAMEORIGIN"
+        "x-frame-options": "SAMEORIGIN",
+        "content-security-policy": "sandbox allow-same-origin; script-src 'none'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"
       });
       return res.end(buildPreviewErrorPage(error.message, targetUrl));
     }
@@ -612,7 +543,7 @@ async function handleApi(req, res, url) {
       };
       db.jobs.unshift(job);
       await saveDb();
-      runJob(job);
+      runJob(job).catch(console.error);
       return sendJson(res, 201, { job: serializeJob(job) });
     } catch (error) {
       return sendJson(res, 400, { error: error.message });
@@ -623,6 +554,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && runMatch) {
     const job = db.jobs.find((item) => item.id === runMatch[1] && item.userId === user.id);
     if (!job) return sendJson(res, 404, { error: "Monitoreo no encontrado." });
+    if (job.running) return sendJson(res, 409, { error: "Ya hay una revisión en curso." });
     const result = await runJob(job);
     return sendJson(res, 200, { result, job: serializeJob(job) });
   }
@@ -690,11 +622,7 @@ function scheduleJobs() {
       const lastRun = job.lastRunAt ? new Date(job.lastRunAt).getTime() : 0;
       const due = !lastRun || now - lastRun >= job.intervalMinutes * 60 * 1000;
       if (due) {
-        job.running = true;
-        runJob(job).finally(() => {
-          delete job.running;
-          saveDb().catch(() => {});
-        });
+        runJob(job).catch(console.error);
       }
     }
   }, SCHEDULER_TICK_MS);

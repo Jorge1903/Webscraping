@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -19,20 +19,22 @@ import {
   Wifi
 } from "lucide-react";
 import "./styles.css";
+import PageInspector from "./PageInspector.jsx";
+import { fieldRecognized, recognizedSelection } from "./field-selection.js";
 
-const intervalOptions = [5, 10, 30];
+const intervalOptions = [5];
 
 const fieldOptions = [
-  { key: "pagePreview", label: "Mini pagina", previewKey: "sourceUrl" },
+  { key: "pagePreview", label: "Vista de página", previewKey: "sourceUrl" },
   { key: "image", label: "Imagen", previewKey: "image" },
   { key: "name", label: "Nombre", previewKey: "name" },
   { key: "price", label: "Precio", previewKey: "price" },
   { key: "currency", label: "Moneda", previewKey: "currency" },
   { key: "availability", label: "Disponibilidad", previewKey: "availability" },
-  { key: "description", label: "Descripcion", previewKey: "description" },
-  { key: "checkedAt", label: "Fecha de revision", previewKey: "checkedAt" },
-  { key: "sourceUrl", label: "URL final", previewKey: "sourceUrl" },
-  { key: "history", label: "Historial y grafica", previewKey: "price" }
+  { key: "description", label: "Descripción", previewKey: "description" },
+  { key: "checkedAt", label: "Fecha de revisión", previewKey: "checkedAt" },
+  { key: "sourceUrl", label: "Enlace de origen", previewKey: "sourceUrl" },
+  { key: "history", label: "Historial y gráfica", previewKey: "price" }
 ];
 
 const defaultVisibleFields = ["pagePreview", "image", "name", "price", "currency", "availability", "description", "checkedAt", "history"];
@@ -80,12 +82,13 @@ function priceNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatMoney(value) {
+function formatMoney(value, currency = "MXN") {
   if (value == null) return "N/D";
   return new Intl.NumberFormat("es-MX", {
     style: "currency",
-    currency: "MXN",
-    maximumFractionDigits: 0
+    currency: /^[A-Z]{3}$/.test(currency) ? currency : "MXN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value);
 }
 
@@ -115,7 +118,7 @@ function getNextRun(job) {
 }
 
 function formatFieldValue(key, value) {
-  if (!value) return "No detectado";
+  if (!value) return "Sin detectar";
   if (key === "checkedAt") return formatDate(value);
   if (key === "availability") return String(value).replace(/^https?:\/\/schema.org\//, "");
   return String(value);
@@ -133,17 +136,17 @@ function getPricePoints(results = []) {
     .reverse();
 }
 
-function PriceHistoryChart({ points }) {
+function PriceHistoryChart({ points, currency }) {
   const latest = points.at(-1);
   const previous = points.at(-2);
   const delta = latest && previous ? latest.value - previous.value : 0;
-  const deltaLabel = latest && previous ? `${delta > 0 ? "+" : ""}${formatMoney(delta)}` : "Sin cambio previo";
+  const deltaLabel = latest && previous ? `${delta > 0 ? "+" : ""}${formatMoney(delta, currency)}` : "Primera lectura";
 
   if (!points.length) {
     return (
       <div className="history-chart chart-empty">
-        <strong>Historial de precio</strong>
-        <span>Se dibujara cuando la primera revision detecte un precio.</span>
+        <strong>Historial de precios</strong>
+        <span>Se dibujará cuando la primera revisión detecte un precio.</span>
       </div>
     );
   }
@@ -153,14 +156,14 @@ function PriceHistoryChart({ points }) {
       <div className="history-chart single-point">
         <div className="chart-heading">
           <div>
-            <span className="eyebrow">Historial de precio</span>
-            <strong>{formatMoney(latest.value)}</strong>
+            <span className="eyebrow">Historial de precios</span>
+            <strong>{formatMoney(latest.value, currency)}</strong>
           </div>
           <span>1 punto</span>
         </div>
         <div className="single-price-line">
           <span>{formatShortDate(latest.date)}</span>
-          <b>{formatMoney(latest.value)}</b>
+          <b>{formatMoney(latest.value, currency)}</b>
         </div>
       </div>
     );
@@ -193,20 +196,20 @@ function PriceHistoryChart({ points }) {
     <div className="history-chart">
       <div className="chart-heading">
         <div>
-          <span className="eyebrow">Historial de precio</span>
-          <strong>{formatMoney(latest.value)}</strong>
+          <span className="eyebrow">Historial de precios</span>
+          <strong>{formatMoney(latest.value, currency)}</strong>
         </div>
         <span className={delta < 0 ? "delta down" : delta > 0 ? "delta up" : "delta"}>
           {deltaLabel}
         </span>
       </div>
-      <svg className="price-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grafica de historial de precio">
+      <svg className="price-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gráfica de historial de precio">
         {ticks.map((tick) => {
           const y = padding.top + chartHeight - ((tick - chartMin) / range) * chartHeight;
           return (
             <g key={tick}>
               <line x1={padding.left} x2={padding.left + chartWidth} y1={y} y2={y} />
-              <text x={padding.left - 10} y={y + 4} textAnchor="end">{formatMoney(tick)}</text>
+              <text x={padding.left - 10} y={y + 4} textAnchor="end">{formatMoney(tick, currency)}</text>
             </g>
           );
         })}
@@ -215,7 +218,7 @@ function PriceHistoryChart({ points }) {
         {coords.map((point) => (
           <g key={point.id}>
             <circle cx={point.x} cy={point.y} r="4.5" />
-            <title>{`${formatShortDate(point.date)} - ${formatMoney(point.value)}`}</title>
+            <title>{`${formatShortDate(point.date)} - ${formatMoney(point.value, currency)}`}</title>
           </g>
         ))}
         <text x={padding.left} y={height - 8}>{firstDate}</text>
@@ -238,7 +241,7 @@ function ProductPagePreview({ url, title }) {
       </div>
       <div className="page-preview-viewport">
         <iframe
-          title={`Miniatura de ${title || url}`}
+          title={`Vista de ${title || url}`}
           src={previewUrl}
           loading="lazy"
           sandbox="allow-same-origin"
@@ -265,7 +268,7 @@ function AuthScreen({ onAuth }) {
     } catch (err) {
       if (mode === "register" && err.message === "Ese correo ya existe.") {
         setMode("login");
-        setError("Ese correo ya existe. Cambie a iniciar sesion para que puedas entrar con esa cuenta.");
+        setError("Ese correo ya existe. Cambié a iniciar sesión para que puedas entrar con esa cuenta.");
       } else {
         setError(err.message);
       }
@@ -281,14 +284,14 @@ function AuthScreen({ onAuth }) {
           <Wifi size={22} />
         </div>
         <h1>Scraping Monitor</h1>
-        <p>Registra productos, define cada cuanto revisarlos y guarda el historial de nombre, precio e imagen.</p>
+        <p>Sigue tus productos, descubre cambios de precio y conserva cada revisión.</p>
         <form onSubmit={submit} className="auth-form">
           <label>
             Correo
             <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required />
           </label>
           <label>
-            Contrasena
+            Contraseña
             <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={8} autoComplete="current-password" required />
           </label>
           {error && <div className="alert">{error}</div>}
@@ -311,6 +314,8 @@ function JobForm({ onCreated }) {
   const [loading, setLoading] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState(null);
+  const previewRequest = useRef(0);
+  const fieldOverrides = useRef({});
   const [error, setError] = useState("");
 
   function update(path, value) {
@@ -331,15 +336,14 @@ function JobForm({ onCreated }) {
       } else {
         currentFields.add(key);
       }
-      return {
-        ...current,
-        visibleFields: currentFields.size ? [...currentFields] : defaultVisibleFields
-      };
+      fieldOverrides.current[key] = currentFields.has(key);
+      return { ...current, visibleFields: [...currentFields] };
     });
   }
 
   async function previewProduct(nextUrl = form.url) {
     if (!/^https?:\/\//i.test(nextUrl.trim())) return;
+    const request = ++previewRequest.current;
     setPreviewing(true);
     setError("");
     try {
@@ -347,22 +351,28 @@ function JobForm({ onCreated }) {
         method: "POST",
         body: { url: nextUrl.trim(), selectors: form.selectors }
       });
+      if (request !== previewRequest.current) return;
       setPreview(payload.data);
       setForm((current) => ({
         ...current,
         title: current.title || (payload.data.name === "Nombre no detectado" ? "" : payload.data.name),
-        url: nextUrl.trim()
+        url: nextUrl.trim(),
+        visibleFields: recognizedSelection(fieldOptions, payload.data, fieldOverrides.current)
       }));
     } catch (err) {
+      if (request !== previewRequest.current) return;
       setPreview(null);
       setError(err.message);
     } finally {
-      setPreviewing(false);
+      if (request === previewRequest.current) setPreviewing(false);
     }
   }
 
   function updateUrl(value) {
-    update("url", value);
+    previewRequest.current += 1;
+    setPreviewing(false);
+    fieldOverrides.current = {};
+    setForm(current => ({ ...current, title: "", url: value, selectors: { name: "", price: "", image: "" }, visibleFields: [] }));
     setPreview(null);
   }
 
@@ -370,7 +380,7 @@ function JobForm({ onCreated }) {
     if (!/^https?:\/\//i.test(form.url.trim())) return undefined;
     const timer = setTimeout(() => previewProduct(form.url), 700);
     return () => clearTimeout(timer);
-  }, [form.url, form.selectors.name, form.selectors.price, form.selectors.image]);
+  }, [form.url, JSON.stringify(form.selectors)]);
 
   async function submit(event) {
     event.preventDefault();
@@ -379,6 +389,8 @@ function JobForm({ onCreated }) {
     try {
       const payload = await api("/api/jobs", { method: "POST", body: form });
       onCreated(payload.job);
+      previewRequest.current += 1;
+      fieldOverrides.current = {};
       setForm(emptyJob);
       setPreview(null);
     } catch (err) {
@@ -392,8 +404,8 @@ function JobForm({ onCreated }) {
     <form className="job-form" onSubmit={submit}>
       <div className="form-header">
         <div>
-          <span className="eyebrow">Nuevo monitoreo</span>
-          <h2>Pega el link del producto</h2>
+          <span className="eyebrow">Añadir producto</span>
+          <h2>¿Qué producto seguimos?</h2>
         </div>
         <button className="primary-button compact" type="submit" disabled={loading}>
           {loading ? <Loader2 className="spin" size={17} /> : <Plus size={17} />}
@@ -403,11 +415,10 @@ function JobForm({ onCreated }) {
 
       <div className="url-row">
         <label>
-          Link del producto
+          Enlace del producto
           <input
             value={form.url}
             onChange={(event) => updateUrl(event.target.value)}
-            onBlur={() => previewProduct()}
             placeholder="https://www.amazon.com.mx/..."
             required
           />
@@ -417,61 +428,45 @@ function JobForm({ onCreated }) {
           Detectar
         </button>
       </div>
+      <button className="link-button" type="button" onClick={() => updateUrl(`${window.location.origin}/example-product.html`)}>Probar el selector con una página de ejemplo</button>
 
-      {preview && (
-        <div className="preview-panel">
-          <div className="preview-image">
-            {preview.image ? <img src={preview.image} alt={preview.name || "Producto detectado"} /> : <Search size={28} />}
-          </div>
-          <div className="preview-copy">
-            <span className="eyebrow">Detectado</span>
-            <strong>{preview.name}</strong>
-            <div className="preview-meta">
-              <span>{preview.price}</span>
-              {preview.availability && <span>{preview.availability.replace(/^https?:\/\/schema.org\//, "")}</span>}
-              {preview.currency && <span>{preview.currency}</span>}
-            </div>
-            {preview.description && <p>{preview.description}</p>}
-          </div>
-          <div className="preview-data">
-            {fieldOptions
-              .filter((field) => field.key !== "history")
-              .map((field) => (
-                <div key={field.key} className={form.visibleFields.includes(field.key) ? "selected" : ""}>
-                  <span>{field.label}</span>
-                  <strong>{formatFieldValue(field.previewKey, preview[field.previewKey])}</strong>
-                </div>
-              ))}
-          </div>
+      {previewing && <div className="detection-progress" role="status"><Loader2 className="spin" size={17} /> Reconociendo la información del producto…</div>}
+      {preview && <section className="field-picker detected-picker">
+        <div className="detected-heading">
+          <div><span className="eyebrow">Información reconocida</span><h3>Ya seleccionamos los datos por ti</h3><p className="hint">Desmarca lo que no quieras incluir en tu monitoreo.</p></div>
+          <span className="selection-count" aria-live="polite">{form.visibleFields.length} de {fieldOptions.length} seleccionados</span>
         </div>
-      )}
-
-      <section className="field-picker">
-        <div>
-          <span className="eyebrow">Campos visibles</span>
-          <h3>Elige que se mostrara en la tarjeta</h3>
+        <div className="selection-tools">
+          <button type="button" className="link-button" onClick={() => { fieldOverrides.current = Object.fromEntries(fieldOptions.map(field => [field.key, fieldRecognized(field, preview)])); update('visibleFields', recognizedSelection(fieldOptions, preview)); }}>Seleccionar reconocidos</button>
+          <button type="button" className="link-button" onClick={() => { fieldOverrides.current = Object.fromEntries(fieldOptions.map(field => [field.key, false])); update('visibleFields', []); }}>Desmarcar todos</button>
         </div>
-        <div className="field-options">
-          {fieldOptions.map((field) => (
-            <label key={field.key} className={form.visibleFields.includes(field.key) ? "field-option selected" : "field-option"}>
-              <input
-                type="checkbox"
-                checked={form.visibleFields.includes(field.key)}
-                onChange={() => toggleField(field.key)}
-              />
-              <span>{field.label}</span>
-            </label>
-          ))}
+        <div className="field-options detected-options">
+          {fieldOptions.map(field => {
+            const detected = fieldRecognized(field, preview);
+            const checked = form.visibleFields.includes(field.key);
+            return <label key={field.key} className={'field-option detected-option' + (checked ? ' selected' : '') + (!detected ? ' undetected' : '')}>
+              <input type="checkbox" aria-label={field.label} checked={checked} onChange={() => toggleField(field.key)} />
+              <div className="detected-value"><span className="detected-label">{field.label}<small>{detected ? 'Reconocido' : 'Sin detectar'}</small></span>
+              {field.key === 'image' && preview.image ? <img src={preview.image} alt="Imagen reconocida" /> : <strong title={String(preview[field.previewKey] || '')}>{field.key === 'history' ? detected ? 'Gráfica y cambios de precio' : 'Necesita un precio' : formatFieldValue(field.previewKey, preview[field.previewKey])}</strong>}</div>
+            </label>;
+          })}
         </div>
-      </section>
+      </section>}
+      {/^https?:\/\//i.test(form.url.trim()) && <details className="visual-adjustment">
+        <summary><Search size={17} /><span>Ajustar datos en la página<span className="summary-note">Opcional · selecciona otra parte si lo necesitas</span></span></summary>
+        <PageInspector url={form.url.trim()} selectors={form.selectors} detected={preview} selectedFields={form.visibleFields} onToggle={toggleField} onSelect={(key, selector) => {
+          update(`selectors.${key}`, selector);
+          if (selector) { fieldOverrides.current[key] = true; setForm(current => ({ ...current, visibleFields: [...new Set([...current.visibleFields, key])] })); }
+        }} />
+      </details>}
 
       <div className="form-grid compact-grid">
         <label className="wide">
-          Nombre guardado
+          Nombre del monitoreo
           <input value={form.title} onChange={(event) => update("title", event.target.value)} placeholder="Se completa al detectar el link" required />
         </label>
         <label>
-          Alerta de precio
+          Precio objetivo (opcional)
           <input value={form.targetPrice} onChange={(event) => update("targetPrice", event.target.value)} inputMode="decimal" placeholder="Ej. 1299" />
         </label>
       </div>
@@ -493,7 +488,7 @@ function JobForm({ onCreated }) {
       </div>
 
       <details className="selectors">
-        <summary><Settings2 size={16} /> Selectores opcionales</summary>
+        <summary><Settings2 size={16} /> Configuración avanzada</summary>
         <div className="form-grid three">
           <label>
             Nombre
@@ -515,7 +510,8 @@ function JobForm({ onCreated }) {
   );
 }
 
-function JobCard({ job, onRun, onDelete, onIntervalChange }) {
+function JobCard({ job, onRun, onDelete, onIntervalChange, onSelectionChange }) {
+  const [editingSelection, setEditingSelection] = useState(false);
   const latest = job.results?.[0];
   const latestData = latest?.data;
   const statusLabel = job.lastStatus === "ok" ? "Correcto" : job.lastStatus === "error" ? "Error" : "Pendiente";
@@ -538,6 +534,8 @@ function JobCard({ job, onRun, onDelete, onIntervalChange }) {
 
   return (
     <article className={`job-card ${!shouldShow("image") && !shouldShow("pagePreview") ? "no-image" : ""}`}>
+      <div className="saved-selection-toolbar"><button className="secondary-button" onClick={() => setEditingSelection(!editingSelection)}><Search size={16} />{editingSelection ? "Cerrar selector" : "Seleccionar datos de la página"}</button></div>
+      {editingSelection && <div className="saved-inspector"><PageInspector url={job.url} selectors={job.selectors || {}} detected={latestData} selectedFields={job.visibleFields || defaultVisibleFields} onToggle={key => onSelectionChange(job, key, undefined)} onSelect={(key, selector) => onSelectionChange(job, key, selector)} /></div>}
       {(shouldShow("pagePreview") || shouldShow("image")) && (
         <div className="visual-rail">
           {shouldShow("pagePreview") && (
@@ -563,16 +561,16 @@ function JobCard({ job, onRun, onDelete, onIntervalChange }) {
         </div>
         {shouldShow("price") && (
           <div className="price-row">
-            <strong>{latestData?.price || "Sin precio todavia"}</strong>
+            <strong>{latestData?.price || "Sin precio todavía"}</strong>
             <span>Cada {job.intervalMinutes} min</span>
-            <span>Proxima: {nextRunLabel}</span>
+            <span>Próxima: {nextRunLabel}</span>
             <span>HTML</span>
           </div>
         )}
         {!shouldShow("price") && (
           <div className="price-row">
             <span>Cada {job.intervalMinutes} min</span>
-            <span>Proxima: {nextRunLabel}</span>
+            <span>Próxima: {nextRunLabel}</span>
             <span>HTML</span>
           </div>
         )}
@@ -607,11 +605,11 @@ function JobCard({ job, onRun, onDelete, onIntervalChange }) {
         )}
         {shouldShow("history") && (
           <div className="keepa-panel">
-            <PriceHistoryChart points={points} />
+            <PriceHistoryChart points={points} currency={latestData?.currency} />
             <div className="price-stats">
-              <div><span>Minimo</span><strong>{formatMoney(lowest)}</strong></div>
-              <div><span>Promedio</span><strong>{formatMoney(average)}</strong></div>
-              <div><span>Maximo</span><strong>{formatMoney(highest)}</strong></div>
+              <div><span>Mínimo</span><strong>{formatMoney(lowest, latestData?.currency)}</strong></div>
+              <div><span>Promedio</span><strong>{formatMoney(average, latestData?.currency)}</strong></div>
+              <div><span>Máximo</span><strong>{formatMoney(highest, latestData?.currency)}</strong></div>
             </div>
           </div>
         )}
@@ -623,9 +621,9 @@ function JobCard({ job, onRun, onDelete, onIntervalChange }) {
               return (
                 <div key={point.id} className="timeline-item">
                   <span>{formatShortDate(point.date)}</span>
-                  <strong>{formatMoney(point.value)}</strong>
+                  <strong>{formatMoney(point.value, latestData?.currency)}</strong>
                   <b className={change < 0 ? "down" : change > 0 ? "up" : ""}>
-                    {previousPoint ? `${change > 0 ? "+" : ""}${formatMoney(change)}` : "Inicial"}
+                    {previousPoint ? `${change > 0 ? "+" : ""}${formatMoney(change, latestData?.currency)}` : "Inicial"}
                   </b>
                 </div>
               );
@@ -655,10 +653,41 @@ function JobCard({ job, onRun, onDelete, onIntervalChange }) {
   );
 }
 
+function MonitorTable({ jobs, now, busyId, onRun, onDetails, expandedId }) {
+  const columns = fieldOptions.filter(field => !['pagePreview', 'history', 'checkedAt', 'sourceUrl', 'name'].includes(field.key) && jobs.some(job => (job.visibleFields || defaultVisibleFields).includes(field.key)));
+  return <div className="monitor-table-wrap"><table className="monitor-table">
+    <caption><span className="live-dot" /> Seguimiento en vivo · peticiones automáticas cada 5 minutos mientras el servidor está encendido</caption>
+    <thead><tr><th>Monitoreo</th>{columns.map(field => <th key={field.key}>{field.label}</th>)}<th>Cambio de precio</th><th>Última petición</th><th>Siguiente revisión</th><th>Acciones</th></tr></thead>
+    <tbody>{jobs.map(job => {
+      const latest = job.results?.[0];
+      const successful = (job.results || []).filter(result => result.status === 'ok');
+      const data = successful[0]?.data;
+      const current = data?.priceValue;
+      const previous = successful[1]?.data?.priceValue;
+      const delta = current != null && previous != null ? current - previous : null;
+      const remaining = Math.max(0, (getNextRun(job)?.getTime() || now) - now);
+      const seconds = Math.ceil(remaining / 1000);
+      const running = job.running || busyId === job.id;
+      return <tr key={job.id} className={job.lastStatus === 'error' ? 'row-error' : ''}>
+        <td><strong title={job.title}>{(job.visibleFields || defaultVisibleFields).includes("name") ? data?.name || job.title : job.title}</strong><a href={job.url} target="_blank" rel="noreferrer">{new URL(job.url).hostname} ↗</a><span className={'status ' + job.lastStatus}>{running ? 'Consultando…' : job.lastStatus === 'error' ? 'Error de consulta' : job.lastStatus === 'ok' ? 'Actualizado' : 'Pendiente'}</span></td>
+        {columns.map(field => <td key={field.key}>{!(job.visibleFields || defaultVisibleFields).includes(field.key) ? '—' : field.key === 'image' ? data?.image ? <img src={data.image} alt={data.name || job.title} /> : '—' : <span title={String(data?.[field.previewKey] || '')}>{formatFieldValue(field.previewKey, data?.[field.previewKey])}</span>}</td>)}
+        <td><span className={'change-badge ' + (delta < 0 ? 'down' : delta > 0 ? 'up' : '')}>{job.lastStatus === 'error' ? 'Sin verificar' : delta == null ? 'Primera lectura' : delta === 0 ? 'Sin cambios' : (delta > 0 ? '↑ +' : '↓ ') + formatMoney(delta, data?.currency)}</span>{job.lastError && <small className="table-error">{job.lastError}</small>}</td>
+        <td>{formatDate(latest?.createdAt)}{job.lastStatus === 'error' && data && <small>Último dato válido: {formatDate(data.checkedAt)}</small>}</td>
+        <td><strong className="countdown">{!job.active ? 'Pausado' : running ? 'Consultando…' : seconds === 0 ? 'En cola…' : String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0')}</strong><div className="countdown-track"><i style={{ width: Math.min(100, remaining / 3000) + '%' }} /></div><small>Cada 5 minutos</small></td>
+        <td><div className="table-actions"><button className="secondary-button" disabled={running} onClick={() => onRun(job.id)}>{running ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}Revisar ahora</button><button className="link-button" onClick={() => onDetails(job.id)}>{expandedId === job.id ? 'Cerrar detalles' : 'Ver página e historial'}</button></div></td>
+      </tr>;
+    })}</tbody>
+  </table></div>;
+}
+
 function Dashboard({ user, onLogout }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const [expandedId, setExpandedId] = useState("");
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const stats = useMemo(() => {
     const ok = jobs.filter((job) => job.lastStatus === "ok").length;
     const errors = jobs.filter((job) => job.lastStatus === "error").length;
@@ -671,7 +700,7 @@ function Dashboard({ user, onLogout }) {
   }
 
   useEffect(() => {
-    loadJobs().finally(() => setLoading(false));
+    loadJobs().catch(err => setActionError(err.message)).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -692,9 +721,12 @@ function Dashboard({ user, onLogout }) {
 
   async function runNow(id) {
     setBusyId(id);
+    setActionError("");
     try {
       const payload = await api(`/api/jobs/${id}/run`, { method: "POST" });
       setJobs((current) => current.map((job) => (job.id === id ? payload.job : job)));
+    } catch (err) {
+      setActionError(err.message);
     } finally {
       setBusyId("");
     }
@@ -717,6 +749,15 @@ function Dashboard({ user, onLogout }) {
     setJobs((current) => current.map((item) => (item.id === job.id ? payload.job : item)));
   }
 
+  async function updateSelection(job, key, selector) {
+    setActionError('');
+    try {
+      const payload = await api('/api/jobs/' + job.id, { method: 'PUT', body: { ...job, intervalMinutes: 5, selectors: selector === undefined ? job.selectors : { ...job.selectors, [key]: selector }, visibleFields: selector === undefined ? (job.visibleFields || defaultVisibleFields).includes(key) ? (job.visibleFields || defaultVisibleFields).filter(field => field !== key) : [...(job.visibleFields || defaultVisibleFields), key] : [...new Set([...(job.visibleFields || defaultVisibleFields), key])] } });
+      setJobs(current => current.map(item => item.id === job.id ? payload.job : item));
+      if (selector !== undefined) await runNow(job.id);
+    } catch (err) { setActionError(err.message); }
+  }
+
   async function deleteJob(id) {
     await api(`/api/jobs/${id}`, { method: "DELETE" });
     setJobs((current) => current.filter((job) => job.id !== id));
@@ -731,9 +772,9 @@ function Dashboard({ user, onLogout }) {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <span className="eyebrow">Panel de scraping</span>
-          <h1>Monitoreo de productos</h1>
-          <p className="topbar-copy">Revisiones automaticas cada 5, 10 o 30 minutos con historial y alertas.</p>
+          <span className="eyebrow">Tu espacio de seguimiento</span>
+          <h1>Tus productos, al día</h1>
+          <p className="topbar-copy">Selecciona datos de la página y sigue sus cambios cada 5 minutos.</p>
         </div>
         <div className="top-actions">
           <span className="user-chip">
@@ -752,12 +793,13 @@ function Dashboard({ user, onLogout }) {
 
       <section className="stats-grid">
         <div><span>Total</span><strong>{stats.total}</strong></div>
-        <div><span>Correctos</span><strong>{stats.ok}</strong></div>
-        <div><span>Con error</span><strong>{stats.errors}</strong></div>
+        <div><span>Actualizados</span><strong>{stats.ok}</strong></div>
+        <div><span>Por revisar</span><strong>{stats.errors}</strong></div>
       </section>
 
-      <JobForm onCreated={(job) => setJobs((current) => [job, ...current])} />
+      <JobForm onCreated={(job) => { setJobs(current => [job, ...current]); setExpandedId(job.id); }} />
 
+      {actionError && <div className="alert" role="alert">{actionError}</div>}
       <section className="jobs-section">
         <div className="section-title">
           <h2>Productos</h2>
@@ -768,11 +810,10 @@ function Dashboard({ user, onLogout }) {
         ) : jobs.length === 0 ? (
           <div className="empty-state">Agrega un link de Amazon, Mercado Libre, Impuls, Chapur, Nike o Adidas para empezar.</div>
         ) : (
-          <div className="job-list">
-            {jobs.map((job) => (
-              <JobCard key={job.id} job={job} onRun={runNow} onDelete={deleteJob} onIntervalChange={updateInterval} />
-            ))}
-          </div>
+          <>
+            <MonitorTable jobs={jobs} now={now} busyId={busyId} onRun={runNow} onDetails={id => setExpandedId(expandedId === id ? '' : id)} expandedId={expandedId} />
+            {jobs.filter(job => job.id === expandedId).map(job => <JobCard key={job.id} job={job} onRun={runNow} onDelete={id => deleteJob(id).catch(err => setActionError(err.message))} onIntervalChange={updateInterval} onSelectionChange={updateSelection} />)}
+          </>
         )}
       </section>
     </main>
@@ -797,4 +838,6 @@ function App() {
   return user ? <Dashboard user={user} onLogout={() => setUser(null)} /> : <AuthScreen onAuth={setUser} />;
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+const root = import.meta.hot?.data.root || createRoot(document.getElementById("root"));
+if (import.meta.hot) import.meta.hot.dispose(data => { data.root = root; });
+root.render(<App />);
