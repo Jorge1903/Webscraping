@@ -71,7 +71,8 @@ Para desplegar esta imagen en Render, selecciona el entorno Docker y el
 montado en `/app/data` con permisos de escritura para el usuario `node` (UID 1000),
 o migra antes a PostgreSQL. Sin persistencia, los cambios del JSON se pierden al
 recrear el contenedor. El puerto respeta la variable `PORT` de Render y el servidor
-escucha en `0.0.0.0`. No se ha cambiado ningún despliegue remoto.
+escucha en `0.0.0.0`. Render sigue usando Node; la propuesta Docker aún no está
+aplicada. Vercel sí tiene sus ajustes de compilación actualizados.
 
 Vercel puede seguir alojando React y enviando `/api` a Render mediante
 `vercel.json`. Docker local usa su propia carpeta `data`; no sincroniza datos con
