@@ -28,7 +28,7 @@
     "android": "expo start --android",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-default-type=module --experimental-strip-types scripts/verify-navigation.ts",
+    "test": "node --experimental-strip-types scripts/verify-navigation.ts",
     "build:apk": "npx eas-cli@latest build --platform android --profile preview"
   },
   "private": true
