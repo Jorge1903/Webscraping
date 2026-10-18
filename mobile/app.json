@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Scraping Monitor",
+    "slug": "scraping-monitor",
+    "owner": "jorge1903",
+    "description": "Tus productos, precios y monitoreos en un solo lugar.",
+    "version": "1.0.0",
+    "orientation": "default",
+    "platforms": [
+      "android"
+    ],
+    "icon": "./assets/monitor-icon.png",
+    "scheme": "scrapingmonitor",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b111b",
+    "githubUrl": "https://github.com/Jorge1903/Webscraping",
+    "android": {
+      "package": "com.jorge1903.scrapingmonitor",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#0b111b",
+        "foregroundImage": "./assets/monitor-adaptive.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0b111b",
+          "image": "./assets/monitor-adaptive.png",
+          "imageWidth": 160
+        }
+      ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "d031624a-0122-4240-9481-f726b2beba0c"
+      }
+    }
+  }
+}

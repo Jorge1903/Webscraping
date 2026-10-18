@@ -1,0 +1,14 @@
+# EAS uploads only the Android client, never the local database or backend secrets.
+/*
+!/mobile
+/mobile/node_modules/
+/mobile/.expo/
+/mobile/dist/
+/mobile/android/
+/mobile/ios/
+/mobile/.claude/
+/mobile/AGENTS.md
+/mobile/.env*
+/mobile/credentials.json
+/mobile/**/*.jks
+/mobile/**/*.keystore

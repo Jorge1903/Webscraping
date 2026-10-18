@@ -115,3 +115,8 @@ La app intenta leer `JSON-LD`, metadatos Open Graph, Twitter cards, `<title>` y 
 React solo no puede hacer scraping confiable de otros dominios por CORS y por restricciones de los navegadores. Por eso esta app incluye un backend Node que hace las consultas.
 
 Si un producto de Amazon, Mercado Libre u otra tienda muestra error de conexion o bloqueo, no significa que el formulario este roto. Significa que esa tienda no entrego el HTML al servidor local o lo cargo con JavaScript despues de abrir la pagina.
+# Aplicación Android
+
+La versión instalable con Expo está en [`mobile/`](./mobile/README.md).
+El perfil `preview` genera un APK firmado conectado a los mismos servicios
+publicados en Vercel y Render, sin necesitar Docker local.
