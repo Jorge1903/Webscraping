@@ -21,6 +21,8 @@ import {
 import "./styles.css";
 import PageInspector from "./PageInspector.jsx";
 import { fieldRecognized, recognizedSelection } from "./field-selection.js";
+import { api } from './api.js';
+import { usePagePreview } from './use-page-preview.js';
 
 const intervalOptions = [5];
 
@@ -53,18 +55,6 @@ const emptyJob = {
   },
   active: true
 };
-
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "include",
-    headers: { "content-type": "application/json", ...(options.headers || {}) },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "No se pudo completar la solicitud.");
-  return payload;
-}
 
 function formatDate(value) {
   if (!value) return "Pendiente";
@@ -229,7 +219,7 @@ function PriceHistoryChart({ points, currency }) {
 }
 
 function ProductPagePreview({ url, title }) {
-  const previewUrl = `/api/page-preview?url=${encodeURIComponent(url)}`;
+  const preview = usePagePreview(url);
 
   return (
     <div className="page-preview-card">
@@ -240,12 +230,14 @@ function ProductPagePreview({ url, title }) {
         <b>{title || "Producto"}</b>
       </div>
       <div className="page-preview-viewport">
-        <iframe
+        {preview.loading && <div className="preview-error" role="status">Cargando página… El servidor gratuito puede tardar en iniciar.</div>}
+        {preview.error && <div className="preview-error" role="alert"><p>{preview.error}</p><button className="secondary-button" type="button" onClick={preview.retry}>Volver a cargar</button></div>}
+        {preview.html && <iframe
           title={`Vista de ${title || url}`}
-          src={previewUrl}
+          srcDoc={preview.html}
           loading="lazy"
           sandbox="allow-same-origin"
-        />
+        />}
       </div>
     </div>
   );
@@ -695,8 +687,15 @@ function Dashboard({ user, onLogout }) {
   }, [jobs]);
 
   async function loadJobs() {
-    const payload = await api("/api/jobs");
-    setJobs(payload.jobs);
+    try {
+      const payload = await api("/api/jobs");
+      setJobs(payload.jobs);
+      setActionError('');
+    } catch (error) {
+      if (error.status === 401) onLogout();
+      else setActionError(error.message);
+      throw error;
+    }
   }
 
   useEffect(() => {
@@ -704,20 +703,15 @@ function Dashboard({ user, onLogout }) {
   }, []);
 
   useEffect(() => {
-    if (!jobs.length) {
-      const timer = setTimeout(() => loadJobs().catch(() => {}), 30000);
-      return () => clearTimeout(timer);
-    }
-
-    const nextRunTimes = jobs
-      .map((job) => getNextRun(job)?.getTime())
-      .filter(Boolean);
-    const nextDelay = nextRunTimes.length
-      ? Math.min(...nextRunTimes.map((time) => Math.max(time - Date.now() + 2500, 8000)))
-      : 30000;
-    const timer = setTimeout(() => loadJobs().catch(() => {}), Math.min(nextDelay, 30000));
-    return () => clearTimeout(timer);
-  }, [jobs]);
+    let stopped = false;
+    let timer;
+    const poll = async () => {
+      if (document.visibilityState === 'visible') await loadJobs().catch(() => {});
+      if (!stopped) timer = setTimeout(poll, 30000);
+    };
+    timer = setTimeout(poll, 30000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, []);
 
   async function runNow(id) {
     setBusyId(id);
@@ -781,7 +775,7 @@ function Dashboard({ user, onLogout }) {
             <UserRound size={16} />
             {user.email}
           </span>
-          <button className="icon-button" aria-label="Actualizar" onClick={loadJobs}>
+          <button className="icon-button" aria-label="Actualizar" onClick={() => loadJobs().catch(() => {})}>
             <RefreshCw size={18} />
           </button>
           <button className="secondary-button" onClick={logout}>
@@ -832,7 +826,7 @@ function App() {
   }, []);
 
   if (checking) {
-    return <div className="boot"><Loader2 className="spin" size={30} /> Preparando panel...</div>;
+    return <div className="boot"><Loader2 className="spin" size={30} /> Conectando… La primera carga puede tardar un minuto.</div>;
   }
 
   return user ? <Dashboard user={user} onLogout={() => setUser(null)} /> : <AuthScreen onAuth={setUser} />;

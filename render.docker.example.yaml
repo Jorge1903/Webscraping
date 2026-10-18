@@ -1,7 +1,6 @@
 # Configuracion propuesta; NO esta aplicada al servicio actual.
-# Plan Free elegido por el usuario. SOLO para demostracion: no tiene persistencia.
-# Respaldar el JSON remoto ANTES de modificar el runtime:
-# el despliegue puede borrar el almacenamiento efimero.
+# Plan Free elegido por el usuario, con persistencia en PostgreSQL independiente.
+# PostgreSQL Free de Render caduca a los 30 dias. Respaldar antes del vencimiento.
 # En Blueprints, elegir el servicio existente y confirmar su nombre exacto.
 services:
   - type: web
@@ -13,7 +12,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /api/me
+    healthCheckPath: /api/health
     autoDeployTrigger: "off"
     envVars:
       - key: NODE_ENV
@@ -22,3 +21,11 @@ services:
         value: 0.0.0.0
       - key: MONITOR_DB_PATH
         value: /app/data/db.json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: webscraping-postgres
+          property: connectionString
+databases:
+  - name: webscraping-postgres
+    region: oregon
+    plan: free

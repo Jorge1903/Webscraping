@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Crosshair, Check, Maximize2, RotateCcw } from 'lucide-react';
+import { usePagePreview } from './use-page-preview.js';
 
 const fields = [['price', 'Precio'], ['name', 'Nombre'], ['image', 'Imagen'], ['availability', 'Disponibilidad'], ['description', 'Descripción'], ['currency', 'Moneda']];
 
@@ -34,6 +35,7 @@ export default function PageInspector({ url, selectors, onSelect, detected, sele
   const [error, setError] = useState('');
   const [previewMode, setPreviewMode] = useState('responsive');
   const [viewportWidth, setViewportWidth] = useState(0);
+  const preview = usePagePreview(url);
   useEffect(() => { setCandidate(null); setLoading(true); setError(''); }, [url]);
 
   useEffect(() => {
@@ -67,6 +69,17 @@ export default function PageInspector({ url, selectors, onSelect, detected, sele
   function chooseField(key) {
     setField(key); setCandidate(null); setError('');
   }
+
+  useEffect(() => {
+    const document = frame.current?.contentDocument;
+    if (!document || loading) return;
+    const selector = selectors[field] || detected?.detectedSelectors?.[field];
+    let target;
+    try { target = selector && document.querySelector(selector); } catch { /* Fall back to the product heading. */ }
+    if (!target?.getClientRects().length) target = document.querySelector('h1');
+    const scroll = document.scrollingElement;
+    if (target && scroll) scroll.scrollTop = Math.max(0, target.getBoundingClientRect().top + scroll.scrollTop - 24);
+  }, [ready, loading, field, detected, selectors]);
 
   useEffect(() => {
     const document = frame.current?.contentDocument;
@@ -142,8 +155,9 @@ export default function PageInspector({ url, selectors, onSelect, detected, sele
         <div className="inspector-address"><span className="live-dot" />{url}</div>
         <div className="preview-tools"><label>Vista<select aria-label="Vista de la página" value={previewMode} onChange={event => setPreviewMode(event.target.value)}><option value="responsive">Adaptada a la pantalla</option><option value="desktop">Página completa</option></select></label><span>Toca o haz clic en un dato para seleccionarlo.</span></div>
         <div ref={viewport} className="inspector-preview-viewport">
-          {loading && <div className="inspector-loading">Abriendo la página para seleccionar…</div>}
-          <iframe ref={frame} title="Seleccionar información de la página" style={previewMode === 'desktop' ? { width: Math.max(1120, viewportWidth), height: `${100 / scale}%`, transform: `scale(${scale})`, transformOrigin: 'top left' } : undefined} src={`/api/page-preview?url=${encodeURIComponent(url)}`} sandbox="allow-same-origin" onLoad={() => { setLoading(false); setReady(value => value + 1); }} />
+          {preview.loading && <div className="inspector-loading" role="status">Abriendo la página… El servidor gratuito puede tardar en iniciar.</div>}
+          {preview.error && <div className="preview-error" role="alert"><p>{preview.error}</p><button type="button" className="secondary-button" onClick={preview.retry}>Volver a cargar</button></div>}
+          {preview.html && <iframe ref={frame} title="Seleccionar información de la página" style={previewMode === 'desktop' ? { width: Math.max(1120, viewportWidth), height: `${100 / scale}%`, transform: `scale(${scale})`, transformOrigin: 'top left' } : undefined} srcDoc={preview.html} sandbox="allow-same-origin" onLoad={() => { setLoading(false); setReady(value => value + 1); }} />}
         </div>
         <div className="inspector-hover">{hover || 'Desliza para explorar; toca un elemento para ver su valor.'}</div>
       </div>

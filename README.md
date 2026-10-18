@@ -1,6 +1,6 @@
 # Scraping Monitor
 
-Aplicacion React + Node para registrar productos y revisarlos cada 5 minutos. Guarda usuarios, sesiones, monitoreos e historial local en `data/db.json`. El servidor debe permanecer encendido para hacer las revisiones; el navegador puede cerrarse.
+Aplicacion React + Node para registrar productos y revisarlos cada 5 minutos. Guarda usuarios, sesiones, monitoreos e historial en PostgreSQL cuando se configura `DATABASE_URL`. Docker ya incluye PostgreSQL; sin esa variable, el modo local con npm conserva `data/db.json`. El servidor debe permanecer encendido para hacer las revisiones; el navegador puede cerrarse.
 
 La idea es funcionar como una base estilo Keepa: cada revision guarda precio, nombre e imagen; el panel muestra historial, minimo, promedio, maximo y una alerta visual cuando el precio cae por debajo del objetivo.
 
@@ -31,53 +31,35 @@ separada y el servidor se ejecuta con el usuario `node`.
 
 ### Datos existentes y respaldo
 
-La carpeta `./data` de tu laptop se monta en `/app/data` del contenedor. Se usan
-las cuentas y productos de `data/db.json`, sin importarlos ni incluirlos en la
-imagen. Los datos sobreviven al reemplazo o eliminación del contenedor mientras
-conserves esa carpeta. Al arrancar se reanudan los monitoreos activos.
+Docker Compose inicia `app` y `db`. PostgreSQL guarda los datos en el volumen
+`postgres-data` y escucha localmente en `127.0.0.1:5433`. Al crear una base vacia,
+la app importa `data/db.json` sin sobrescribir una base ya poblada ni copiar
+sesiones de otro entorno. El archivo original queda como respaldo; los cambios
+nuevos se guardan en PostgreSQL. No elimines el volumen con `down -v`.
 
-No ejecutes el servidor con npm y Docker simultáneamente sobre el mismo archivo:
-ambos mantienen el estado en memoria y podrían sobrescribir cambios. Tampoco
-escales este servicio a varias instancias con el almacenamiento JSON actual.
+Para respaldar la base local:
 
-Para respaldar de forma consistente en PowerShell, detén primero todas las
-instancias que escriban en `data/db.json`:
-
-```powershell
-docker compose stop
-Copy-Item -LiteralPath data/db.json -Destination ("data/backup-" + (Get-Date -Format yyyyMMdd-HHmmss) + ".json")
-docker compose start
+```bash
+docker compose exec -T db pg_dump -U monitor -Fc -f /tmp/monitor.dump monitor
+docker compose cp db:/tmp/monitor.dump data/monitor-backup.dump
 ```
 
-Para actualizar el código, ejecuta de nuevo `docker compose up -d --build --wait`.
-Para retirar el contenedor y su red, usa `docker compose down`; la carpeta `data`
-permanece en tu laptop. Docker Desktop y el equipo deben estar encendidos para
-que las revisiones locales continúen.
+Consulta [DEPLOYMENT.md](DEPLOYMENT.md) para las conexiones de desarrollo,
+variables, importacion, pruebas y despliegue en Vercel y Render. Para PostgreSQL
+puedes usar pgAdmin o DBeaver; MySQL Workbench no corresponde a este motor.
 
-### Render, Vercel y PostgreSQL
+### Render y Vercel
 
-Consulta [DEPLOYMENT.md](DEPLOYMENT.md) para los valores de Vercel, el estado
-actual de Render y la propuesta Docker en `render.docker.example.yaml`.
-La propuesta remota mantiene Free por eleccion del usuario, sin disco persistente,
-y requiere respaldar los datos de Render antes de aplicarla. Es para demostracion
-mientras no se implemente persistencia; no se importa automaticamente.
+Render usa `DATABASE_URL` para guardar datos fuera del filesystem efimero del
+backend. El health check `/api/health` comprueba tambien la conexion de la base.
+Vercel publica React y envia `/api` a Render. Las bases local y remota son
+independientes. La cuenta demo se crea al arrancar cuando no existe.
 
-Esta configuración dockeriza la aplicación actual, que todavía guarda sus datos
-en JSON. No crea PostgreSQL ni migra datos automáticamente. Esa migración requiere
-tablas, consultas y un proceso de importación aparte.
-
-Para desplegar esta imagen en Render, selecciona el entorno Docker y el
-`Dockerfile` de la raíz. Usa una sola instancia y configura un disco persistente
-montado en `/app/data` con permisos de escritura para el usuario `node` (UID 1000),
-o migra antes a PostgreSQL. Sin persistencia, los cambios del JSON se pierden al
-recrear el contenedor. El puerto respeta la variable `PORT` de Render y el servidor
-escucha en `0.0.0.0`. Render sigue usando Node; la propuesta Docker aún no está
-aplicada. Vercel sí tiene sus ajustes de compilación actualizados.
-
-Vercel puede seguir alojando React y enviando `/api` a Render mediante
-`vercel.json`. Docker local usa su propia carpeta `data`; no sincroniza datos con
-Render. Un servicio que se suspende por inactividad interrumpe el programador
-interno, por lo que monitorear continuamente requiere un servicio siempre activo.
+El usuario eligio planes Free. PostgreSQL Free de Render creado en esta sesion
+vence el **17 de noviembre de 2026**; exporta y migra los datos antes de esa fecha.
+El backend Free puede suspenderse por inactividad e interrumpir temporalmente las
+revisiones. La interfaz reintenta lecturas temporales 502/503/504 y permite
+recargar vistas previas; no repite escrituras automaticamente.
 
 ## Ejecutar en desarrollo
 

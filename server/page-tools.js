@@ -26,7 +26,7 @@ export function recognizeFields(html, url) {
   }
   const values = {};
   for (const [key, selector] of Object.entries(selectors)) {
-    try { values[key] = selectedValues(html, { [key]: selector }, url)[key]; }
+    try { values[key] = selectedValues(html, { [key]: selector }, url, $)[key]; }
     catch { delete selectors[key]; }
   }
   return { selectors, values };
@@ -40,8 +40,8 @@ export function normalizeSelectors(input = {}) {
   }));
 }
 
-export function selectedValues(html, selectors, url) {
-  const $ = load(html);
+export function selectedValues(html, selectors, url, document) {
+  const $ = document || load(html);
   return Object.fromEntries(selectableFields.map(key => {
     if (!selectors?.[key]) return [key, ''];
     let element;
@@ -68,6 +68,22 @@ export function safePreview(html, sourceUrl) {
   $('meta[name="viewport" i]').remove();
   $('head').append('<meta name="viewport" content="width=device-width, initial-scale=1">');
   $('head').append('<style>html{width:100%;}body{margin-inline:0;}img,video,picture{max-width:100%;height:auto;}input,select,textarea{max-width:100%;}*{box-sizing:border-box;}</style>');
+  // Reflow desktop-only shop grids inside narrow frames without removing nodes:
+  // the CSS selectors selected by the user must still match the source HTML.
+  $('head').append(`<style data-monitor-mobile>
+    @media(max-width:600px){
+      html,body{width:100%!important;min-width:0!important;max-width:100%!important;}
+      body{padding:12px!important;overflow-wrap:anywhere!important;}
+      body *{min-width:0!important;max-width:100%!important;box-sizing:border-box!important;}
+      main,section,article,form,div[class],ul[class]{grid-template-columns:minmax(0,1fr)!important;flex-wrap:wrap!important;}
+      [class*="stretchChildrenWidth"],.product__media-wrapper,.product__info-wrapper,.row>[class*="col-"]{width:100%!important;flex-basis:100%!important;max-width:100%!important;}
+      h1{font-size:clamp(20px,6vw,28px)!important;line-height:1.25!important;word-break:normal!important;}
+      h2,h3{font-size:clamp(18px,5vw,24px)!important;line-height:1.3!important;}
+      img,video,picture{height:auto!important;object-fit:contain!important;}
+      table{display:block!important;overflow-x:auto!important;}
+      [style*="position: fixed"],[style*="position:fixed"]{position:static!important;}
+    }
+  </style>`);
   $('head').append(`<style>html{color-scheme:dark}html,body{min-height:100%;background:#0d121c!important;color:#e6edf6!important;}body{overflow:auto!important;}body *:not(img):not(svg):not(svg *){background-color:transparent!important;color:inherit!important;border-color:#2b3546!important;}*{cursor:crosshair!important;scrollbar-color:#3b4b63 #101723;}[data-monitor-auto]{outline:2px solid #47c9ae!important;outline-offset:2px!important;}[data-monitor-hover]{outline:3px solid #94a7ff!important;outline-offset:2px!important;background-color:rgba(148,167,255,.12)!important;}[data-monitor-selected]{outline:3px solid #a9b7ff!important;outline-offset:2px!important;}</style>`);
   return $.html();
 }

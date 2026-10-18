@@ -4,6 +4,8 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openStorage } from './storage.js';
+import { readHtmlResponse } from './html-response.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -16,7 +18,9 @@ const SCHEDULER_TICK_MS = 1000;
 const ALLOWED_INTERVALS = new Set([5]);
 const DEFAULT_VISIBLE_FIELDS = ["pagePreview", "image", "name", "price", "currency", "availability", "description", "checkedAt", "history"];
 const ALLOWED_VISIBLE_FIELDS = new Set([...DEFAULT_VISIBLE_FIELDS, "sourceUrl"]);
-let saveQueue = Promise.resolve();
+let storage;
+let schedulerTimer;
+let activeChecks = 0;
 
 let db = {
   users: [],
@@ -26,31 +30,23 @@ let db = {
 };
 
 async function ensureDb() {
-  await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-  try {
-    const raw = await fs.readFile(DB_PATH, "utf8");
-    db = { ...db, ...JSON.parse(raw) };
-    for (const job of db.jobs) {
-      delete job.running;
-      job.intervalMinutes = 5;
-
-    }
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    await saveDb();
+  storage = await openStorage({ file: DB_PATH });
+  db = storage.state;
+  for (const job of db.jobs) {
+    delete job.running;
+    job.intervalMinutes = 5;
   }
+  let changed = storage.kind === 'json';
+  if (process.env.ENABLE_DEMO_ACCOUNT !== 'false' && !db.users.some(user => user.email === 'demo@local.test')) {
+    db.users.push({ id: randomId(), email: 'demo@local.test', passwordHash: hashPassword('password123'), createdAt: new Date().toISOString() });
+    changed = true;
+  }
+  if (changed) await saveDb();
+  console.log(`Almacenamiento listo: ${storage.kind}`);
 }
 
 async function saveDb() {
-  const payload = JSON.stringify(db, null, 2);
-  const tempPath = `${DB_PATH}.tmp`;
-  saveQueue = saveQueue
-    .catch(() => {})
-    .then(async () => {
-      await fs.writeFile(tempPath, payload);
-      await fs.rename(tempPath, DB_PATH);
-    });
-  return saveQueue;
+  return storage.save(db);
 }
 
 function sendJson(res, status, body) {
@@ -111,6 +107,7 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
 }
 
 function verifyPassword(password, stored) {
+  if (typeof stored !== 'string' || !/^[a-f0-9]{32}:[a-f0-9]{64}$/i.test(stored)) return false;
   const [salt, expected] = stored.split(":");
   const hash = hashPassword(password, salt).split(":")[1];
   return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(expected, "hex"));
@@ -230,6 +227,15 @@ function buildPreviewErrorPage(message, sourceUrl = "") {
 
 function buildPreviewDocument(html, sourceUrl) { return safePreview(html, sourceUrl); }
 
+async function fetchProductPage(targetUrl, options) {
+  const target = new URL(targetUrl);
+  // The browser's published Docker port is not the server's container port.
+  if (['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) && target.pathname === '/example-product.html') {
+    return new Response(await fs.readFile(path.join(ROOT_DIR, 'public', 'example-product.html')), { headers: { 'content-type': 'text/html' } });
+  }
+  return fetch(targetUrl, options);
+}
+
 async function fetchPagePreview(targetUrl) {
   if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
     throw new Error("La URL debe iniciar con http:// o https://.");
@@ -237,7 +243,7 @@ async function fetchPagePreview(targetUrl) {
 
   let response;
   try {
-    response = await fetch(targetUrl, {
+    response = await fetchProductPage(targetUrl, {
       headers: {
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ProductMonitorPreview/1.0",
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -259,7 +265,7 @@ async function fetchPagePreview(targetUrl) {
     throw new Error("La URL no devolvió una página HTML.");
   }
 
-  const html = await response.text();
+  const html = await readHtmlResponse(response);
   return buildPreviewDocument(html, response.url || targetUrl);
 }
 
@@ -305,7 +311,7 @@ function extractPriceFromText(text) {
 async function scrapeHtml(job) {
   let response;
   try {
-    response = await fetch(job.url, {
+    response = await fetchProductPage(job.url, {
       headers: {
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ProductMonitor/1.0",
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -322,10 +328,11 @@ async function scrapeHtml(job) {
     throw new Error(`La página respondió ${response.status}`);
   }
 
-  const html = await response.text();
+  const html = await readHtmlResponse(response);
   const jsonLd = extractJsonLdProduct(html);
-  const selected = selectedValues(html, job.selectors, response.url);
-  const recognized = recognizeFields(html, response.url);
+  const sourceUrl = response.url || job.url;
+  const selected = selectedValues(html, job.selectors, sourceUrl);
+  const recognized = recognizeFields(html, sourceUrl);
   const pageText = stripTags(html).slice(0, 20000);
 
   const name =
@@ -357,14 +364,15 @@ async function scrapeHtml(job) {
     availability: cleanString(selected.availability || jsonLd.availability || recognized.values.availability || metaContent(html, ["product:availability", "og:availability"])),
     description: decodeEntities(selected.description || jsonLd.description || recognized.values.description || metaContent(html, ["og:description", "twitter:description", "description"])),
     image: absolutize(image, job.url),
-    sourceUrl: response.url,
+    sourceUrl,
     detectedSelectors: recognized.selectors,
     checkedAt: new Date().toISOString()
   };
 }
 
 async function runJob(job) {
-  if (job.running) return null;
+  if (job.running || activeChecks >= 2) return null;
+  activeChecks++;
   job.running = true;
   const startedAt = new Date().toISOString();
   try {
@@ -399,7 +407,7 @@ async function runJob(job) {
     await saveDb();
     return result;
   }
-  finally { delete job.running; }
+  finally { delete job.running; activeChecks--; }
 }
 
 function serializeJob(job) {
@@ -444,6 +452,11 @@ function validatePreviewPayload(payload) {
 }
 
 async function handleApi(req, res, url) {
+  res.setHeader('cache-control', 'no-store');
+  if (req.method === 'GET' && url.pathname === '/api/health') {
+    try { await storage.health(); return sendJson(res, 200, { ok: true, storage: storage.kind }); }
+    catch { return sendJson(res, 503, { error: 'La base de datos no está disponible temporalmente.' }); }
+  }
   if (req.method === "POST" && url.pathname === "/api/register") {
     const payload = await readBody(req);
     const email = cleanString(payload.email).toLowerCase();
@@ -556,6 +569,7 @@ async function handleApi(req, res, url) {
     if (!job) return sendJson(res, 404, { error: "Monitoreo no encontrado." });
     if (job.running) return sendJson(res, 409, { error: "Ya hay una revisión en curso." });
     const result = await runJob(job);
+    if (!result) return sendJson(res, 503, { error: 'Hay otras revisiones en curso. Espera unos segundos y vuelve a intentarlo.' });
     return sendJson(res, 200, { result, job: serializeJob(job) });
   }
 
@@ -615,7 +629,7 @@ async function serveStatic(req, res, url) {
 }
 
 function scheduleJobs() {
-  setInterval(() => {
+  schedulerTimer = setInterval(() => {
     const now = Date.now();
     for (const job of db.jobs) {
       if (!job.active || job.running) continue;
@@ -648,6 +662,22 @@ async function main() {
   server.listen(PORT, HOST, () => {
     console.log(`API lista en http://${HOST}:${PORT}`);
   });
+
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    clearInterval(schedulerTimer);
+    server.close(async () => {
+      while (activeChecks) await new Promise(resolve => setTimeout(resolve, 100));
+      await saveDb();
+      await storage.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 30000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 main().catch((error) => {

@@ -1,91 +1,103 @@
-# Configuracion de Vercel y Render
+# Despliegue y persistencia
 
-## Funcionamiento local y publicado
+## Entornos
 
-| Entorno | Interfaz | API y programador | Almacenamiento |
+| Entorno | Interfaz | Backend | Datos |
 | --- | --- | --- | --- |
-| Local Docker | http://localhost:3001 | Contenedor del proyecto | `./data/db.json` de la laptop |
-| Publicado | https://webscraping-psi.vercel.app | https://webscraping-wnii.onrender.com | Archivos propios del servicio de Render |
+| Laptop | http://localhost:3001 | Node en Docker | PostgreSQL en Docker, volumen postgres-data |
+| Publicado | https://webscraping-psi.vercel.app | Docker en Render Free | webscraping-postgres en Render Free |
 
-Para usar Docker local, Docker Desktop y el contenedor deben estar encendidos.
-El navegador puede cerrarse y el monitor sigue trabajando mientras el equipo no
-se suspenda. `docker compose start` inicia el contenedor existente;
-`docker compose up -d --build --wait` aplica cambios del codigo.
-
-Como alternativa, puedes ejecutar `npm run dev` sin Docker. Deten primero el
-contenedor (`docker compose stop`) para evitar dos servidores escribiendo sobre
-el mismo JSON. El sitio publicado funciona independientemente de tu laptop.
-
-El almacenamiento sigue siendo JSON. No existe una conexion MySQL que puedas
-abrir en MySQL Workbench. PostgreSQL tampoco esta implementado todavia.
+Las bases local y publicada son independientes. No se sincronizan automaticamente.
+Docker Desktop, el servicio app y el servicio db deben estar encendidos para usar
+la version Docker local. La web publicada funciona con la laptop apagada.
 
 ## Vercel
 
-Proyecto: `emmanuelgarciachang-4315s-projects/webscraping`.
+Proyecto: emmanuelgarciachang-4315s-projects/webscraping.
+Repositorio: Jorge1903/Webscraping, rama main, directorio raiz del repositorio.
 
-| Ajuste | Valor |
-| --- | --- |
-| Repositorio | `Jorge1903/Webscraping` |
-| Rama de produccion | `main` |
-| Framework | Vite |
-| Directorio raiz | Raiz del repositorio |
-| Instalacion | `npm ci` |
-| Compilacion | `npm run build` |
-| Salida | `dist` |
-| Proxy de API | `/api/:path*` a `https://webscraping-wnii.onrender.com/api/:path*` |
+- Framework: Vite.
+- Instalacion: npm ci.
+- Compilacion: npm run build.
+- Salida: dist.
+- Proxy: /api/:path* a https://webscraping-wnii.onrender.com/api/:path*.
 
-Estos comandos tambien estan en `vercel.json`. Vercel solo publica la interfaz;
-no necesita acceso al JSON ni credenciales de base de datos. El navegador usa
-`/api` bajo el dominio Vercel y el proxy conserva el flujo de cookies de sesion.
+La configuracion esta en vercel.json. Vercel no recibe credenciales de PostgreSQL.
+Si cancela un despliegue por firma de commit no verificada, se puede usar Redeploy
+sobre ese despliegue desde la cuenta autorizada, sin cambiar protecciones del proyecto.
 
-Los comandos se guardaron en el dashboard y se verifico un redeploy de produccion
-Ready el 18 de octubre de 2026, con la interfaz y `/api/me` funcionando.
+## Render
 
-## Render: estado observado y propuesta Docker
+Servicio: srv-db81s0ivcj2c73fsmh5g, Webscraping, Oregon, rama main.
+Configuracion objetivo: runtime Docker, Dockerfile ./Dockerfile, contexto raiz,
+sin comandos npm adicionales, health check /api/health, Auto-Deploy Off.
+El despliegue es manual para revisar migraciones y respaldos antes de publicar.
 
-Servicio existente: `srv-db81s0ivcj2c73fsmh5g`, nombre `Webscraping`.
-La configuracion observada usa Node, plan Free, region Oregon, rama `main`,
-build `npm ci`, inicio `npm start` y health check `/api/me`. El usuario eligio
-mantener el plan Free; no se ha contratado ningun recurso.
+Variables:
 
-Agregar un Dockerfile al repositorio no cambia por si solo el runtime del
-servicio existente. El archivo `render.docker.example.yaml` contiene una
-propuesta para el mismo servicio con Docker y plan Free. No es un Blueprint
-activo y no se aplica automaticamente. No incluye disco: el JSON del servicio
-seguiria siendo efimero. Por ese motivo no se ha cambiado el runtime ni
-redesplegado Render. Auto-Deploy se dejo en Off para que publicar archivos en
-GitHub no recree el servicio antes de resolver el respaldo y la persistencia.
+- HOST: 0.0.0.0.
+- NODE_ENV: production.
+- DATABASE_URL: URL interna de webscraping-postgres, guardada como secreto en Render.
+- PORT: lo proporciona Render; no fijarlo a 3001.
 
-### Pasos antes de aplicar
+render.docker.example.yaml documenta el servicio y PostgreSQL Free sin secretos.
+No se importa automaticamente y no es necesario crear otra base al usarlo.
+La base creada el 18 de octubre de 2026 vence el 17 de noviembre de 2026 segun el
+panel de Render. No se contrataron planes de pago. Antes de esa fecha hay que
+exportar la base y elegir otro alojamiento o plan; Free no es almacenamiento indefinido.
+El backend Free tambien se suspende por inactividad: durante esa suspension no
+se ejecutan revisiones. Las lecturas de la interfaz reintentan fallos temporales,
+pero esto no convierte Free en un servicio siempre activo.
 
-1. Respaldar los datos del servicio remoto. El respaldo local es independiente y
-   no garantiza conservar las cuentas o productos creados en la web publicada.
-   El plan Free no incluye Shell, por lo que no se debe dar por hecho que el JSON
-   remoto puede exportarse desde el dashboard.
-2. Resolver la persistencia antes de usarlo para datos que deban conservarse.
-   Manteniendo Free, seria necesario implementar una base externa y su migracion;
-   el backend actual no admite PostgreSQL. El plan de base de datos debe revisarse
-   por separado: no se incluye ni contrata automaticamente.
-3. Mantener Auto-Deploy en Off mientras se publican los archivos nuevos en
-   GitHub y hasta terminar el respaldo y la preparacion de persistencia.
-4. En Settings > Build > Source > Edit, elegir el mismo repositorio y rama y
-   cambiar Runtime a Docker. La propuesta Free usa `MONITOR_DB_PATH` en
-   `/app/data/db.json`, sin disco persistente y solo para demostracion.
-   No introducir comandos npm en los campos de Docker: se usa el CMD de la imagen.
-5. Tras implementar persistencia, restaurar el respaldo remoto con acceso
-   restringido, sin subir datos personales ni sesiones al repositorio Git.
-6. Verificar despliegue Live, `/api/me`, login, productos, ejecucion automatica y
-   persistencia despues de un reinicio. Verificar tambien la API desde Vercel.
+## Almacenamiento y migracion
 
-No se debe cambiar el destino del proxy si se conserva la URL actual de Render.
-Si se crea otro servicio con otra URL, actualizar el destino en `vercel.json`.
-El JSON requiere una unica instancia de backend. Docker no elimina los limites
-del plan Free: se suspende por inactividad y no incluye disco persistente.
+Con DATABASE_URL, el backend guarda usuarios, sesiones, monitoreos y resultados
+como estado JSONB en la tabla monitor_state. Se mantiene una sola instancia de
+backend y las escrituras se serializan con revision para evitar sobrescrituras
+silenciosas. Si PostgreSQL falla, no se usa un archivo temporal como sustituto.
 
-Referencias oficiales:
+Al inicializar una base vacia, se importa MONITOR_DB_PATH si existe. No se
+sobrescriben bases con datos ni se migran sesiones de otro entorno. El JSON local
+se conserva como respaldo, pero deja de actualizarse al usar PostgreSQL.
 
-- https://render.com/docs/native-runtimes#changing-a-services-runtime
-- https://render.com/docs/disks
-- https://render.com/docs/free
-- https://render.com/docs/blueprint-spec
-- https://vercel.com/docs/project-configuration
+Importacion manual, con una DATABASE_URL proporcionada por entorno:
+
+    node scripts/import-postgres.mjs data/db.json
+
+Se migraron los 5 usuarios, 14 monitoreos y 500 resultados disponibles localmente.
+Los datos que ya se hayan perdido del filesystem efimero remoto no se pueden
+recuperar sin un respaldo. La cuenta demo se crea cuando falta y nunca sustituye
+una cuenta existente: demo@local.test / password123. ENABLE_DEMO_ACCOUNT=false
+permite desactivar su creacion. Contraseñas y sesiones no se suben a GitHub.
+
+Para consultar PostgreSQL usa pgAdmin o DBeaver; MySQL Workbench es para MySQL.
+Conexion local: host 127.0.0.1, puerto 5433, base monitor, usuario monitor.
+La contraseña de desarrollo por defecto es monitor_local_only y puede fijarse con
+POSTGRES_PASSWORD en .env antes de crear el volumen. Cambiar .env no cambia por
+si solo la contraseña de un volumen ya inicializado. Esas credenciales son solo
+locales; no se usan para Render.
+
+## Respaldo local PostgreSQL
+
+Desde la carpeta del proyecto:
+
+    docker compose exec -T db pg_dump -U monitor -Fc -f /tmp/monitor.dump monitor
+    docker compose cp db:/tmp/monitor.dump data/monitor-backup.dump
+
+Conserva el archivo fuera del repositorio. No ejecutes docker compose down -v:
+el parametro -v elimina el volumen de PostgreSQL. docker compose down conserva
+el volumen. Para respaldar Render usa pg_dump con su conexion externa TLS desde
+un entorno autorizado; no publiques esa URL ni la guardes en archivos versionados.
+
+## Verificaciones
+
+    npm run build
+    node scripts/verify-monitor.mjs
+    node scripts/verify-api.mjs
+    node scripts/verify-storage.mjs
+
+Las pruebas usan datos temporales. MONITOR_TEST_DATABASE_URL permite ejecutar
+verify-monitor y verify-storage contra una base PostgreSQL de pruebas vacia,
+independiente; nunca apuntarla a la base real del usuario.
+
+Referencias: https://render.com/docs/free y https://render.com/docs/docker.

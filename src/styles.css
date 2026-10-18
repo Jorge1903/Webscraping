@@ -164,3 +164,19 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .inspector-expanded .preview-tools > span, .inspector-expanded .inspector-hover { display: none; }
   .inspector-expanded .inspector-header { padding-block: 7px; }
 }
+
+/* Small frames and controls must keep their own width, including iframe fallback pages. */
+.preview-error { min-height: 160px; padding: 20px; display: grid; place-content: center; gap: 12px; overflow-wrap: anywhere; text-align: center; }
+.inspector-preview-viewport, .page-preview-viewport { position: relative; isolation: isolate; }
+.inspector-header { flex-wrap: wrap; }
+.inspector-address { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.inspector-address .live-dot { display: inline-block; margin-right: 6px; }
+@media (max-width: 600px) {
+  .inspector { width: 100%; }
+  .inspector-header > div { flex: 1 1 150px; }
+  .inspector-header .secondary-button { max-width: 100%; }
+  .mobile-field-controls { flex-wrap: wrap; }
+  .mobile-field-controls > label:first-child { flex-basis: 150px; }
+  .inspector-browser, .inspector-sidebar { width: 100%; }
+  .inspector-expanded .inspector-sidebar { max-height: 34dvh; overflow-y: auto; }
+}

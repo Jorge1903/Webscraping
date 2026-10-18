@@ -6,6 +6,9 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { safePreview, selectedValues, htmlText } from '../server/page-tools.js';
 import { recognizedSelection } from '../src/field-selection.js';
+import pg from 'pg';
+
+const connectionString = process.env.MONITOR_TEST_DATABASE_URL || '';
 
 const temp = await fs.mkdtemp(path.resolve('data', 'monitor-verify-'));
 const database = path.join(temp, 'db.json');
@@ -22,7 +25,7 @@ const source = `http://127.0.0.1:${fixture.address().port}/product`;
 const portProbe = http.createServer();
 portProbe.listen(0, '127.0.0.1'); await once(portProbe, 'listening');
 const port = portProbe.address().port; await new Promise(resolve => portProbe.close(resolve));
-const server = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, PORT: String(port), MONITOR_DB_PATH: database }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, DATABASE_URL: connectionString, PORT: String(port), MONITOR_DB_PATH: database }, stdio: ['ignore', 'pipe', 'pipe'] });
 let stderr = ''; server.stderr.on('data', chunk => { stderr += chunk; });
 server.stdout.on('data', chunk => { stderr += chunk; });
 const base = `http://127.0.0.1:${port}`;
@@ -41,6 +44,7 @@ async function until(callback, timeout = 6000) {
 try {
   assert.equal(htmlText('LEVI&apos;S &iquest;Descripci&oacute;n?'), "LEVI'S ¿Descripción?");
   await until(async () => { try { return (await fetch(base + '/api/me')).ok; } catch { return false; } });
+  assert.equal((await api('/api/login', 'POST', { email: 'demo@local.test', password: 'password123' })).status, 200, 'La cuenta demo debe existir desde el primer arranque');
   assert.equal((await api('/api/register', 'POST', { email: 'verify@local.test', password: 'verify123456' })).status, 201);
   const selectors = { price: 'body > main:nth-of-type(1) > section:nth-of-type(1) > span:nth-of-type(2)', name: 'h1', image: 'img', availability: 'main > p' };
   const preview = await api('/api/preview', 'POST', { url: source, selectors });
@@ -65,6 +69,7 @@ try {
   assert.equal((mobilePreview.match(/name="viewport"/g) || []).length, 1);
   assert.ok(mobilePreview.includes('width=device-width, initial-scale=1'));
   assert.ok(!mobilePreview.includes('user-scalable=no'));
+  assert.ok(mobilePreview.includes('data-monitor-mobile'));
   const payload = { title: 'Prueba real', url: source, selectors, intervalMinutes: 5, visibleFields: ['name', 'price', 'availability'], active: true };
   assert.equal((await api('/api/jobs', 'POST', { ...payload, intervalMinutes: 10 })).status, 400);
   const created = await api('/api/jobs', 'POST', payload);
@@ -79,16 +84,22 @@ try {
   assert.deepEqual(cleared.data.job.visibleFields, [], 'Desmarcar todo debe conservar la selección vacía');
   // Restart with an overdue five-minute check, using an isolated test database.
   server.kill(); await once(server, 'exit');
-  const saved = JSON.parse(await fs.readFile(database, 'utf8'));
+  const testPool = connectionString ? new pg.Pool({ connectionString }) : null;
+  const saved = testPool ? (await testPool.query('SELECT state FROM monitor_state WHERE id=1')).rows[0].state : JSON.parse(await fs.readFile(database, 'utf8'));
   saved.jobs[0].lastRunAt = new Date(Date.now() - 301000).toISOString();
-  await fs.writeFile(database, JSON.stringify(saved));
+  if (testPool) {
+    await testPool.query('UPDATE monitor_state SET state=$1::jsonb, revision=revision+1 WHERE id=1', [JSON.stringify(saved)]);
+    await testPool.end();
+  } else await fs.writeFile(database, JSON.stringify(saved));
   price = 899;
-  const scheduledServer = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, PORT: String(port), MONITOR_DB_PATH: database }, stdio: 'ignore' });
+  const scheduledServer = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, DATABASE_URL: connectionString, PORT: String(port), MONITOR_DB_PATH: database }, stdio: 'ignore' });
   try {
     await until(async () => { try { return (await api('/api/jobs')).data.jobs[0]?.results[0]?.data?.priceValue === 899; } catch { return false; } });
     const updated = (await api('/api/jobs')).data.jobs[0];
     assert.equal(updated.results.length, 3);
     assert.equal(updated.intervalMinutes, 5);
+    assert.equal((await api('/api/login', 'POST', { email: 'verify@local.test', password: 'wrong-password' })).status, 401);
+    assert.equal((await api('/api/login', 'POST', { email: 'verify@local.test', password: 'verify123456' })).status, 200, 'La cuenta creada debe reconocer la contraseña tras reiniciar');
     assert.deepEqual(updated.visibleFields, [], 'Reiniciar el servidor no debe volver a seleccionar los datos excluidos');
     assert.ok(requests >= 5);
     console.log('OK: selección CSS exacta, imagen, disponibilidad, vista segura, intervalo único de 5 min, petición manual, historial y ejecución automática vencida.');
