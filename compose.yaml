@@ -1,0 +1,19 @@
+name: webscraping2
+services:
+  app:
+    build: .
+    image: webscraping2:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONITOR_PORT:-3001}:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      MONITOR_DB_PATH: /app/data/db.json
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+    stop_grace_period: 20s

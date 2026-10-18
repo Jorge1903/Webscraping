@@ -1,0 +1,24 @@
+# Configuracion propuesta; NO esta aplicada al servicio actual.
+# Plan Free elegido por el usuario. SOLO para demostracion: no tiene persistencia.
+# Respaldar el JSON remoto ANTES de modificar el runtime:
+# el despliegue puede borrar el almacenamiento efimero.
+# En Blueprints, elegir el servicio existente y confirmar su nombre exacto.
+services:
+  - type: web
+    name: Webscraping
+    runtime: docker
+    repo: https://github.com/Jorge1903/Webscraping
+    branch: main
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/me
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: MONITOR_DB_PATH
+        value: /app/data/db.json

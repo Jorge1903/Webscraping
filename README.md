@@ -4,6 +4,80 @@ Aplicacion React + Node para registrar productos y revisarlos cada 5 minutos. Gu
 
 La idea es funcionar como una base estilo Keepa: cada revision guarda precio, nombre e imagen; el panel muestra historial, minimo, promedio, maximo y una alerta visual cuando el precio cae por debajo del objetivo.
 
+## Ejecutar con Docker Desktop
+
+Abre Docker Desktop con el motor Linux activo. Desde la carpeta del proyecto:
+
+```bash
+docker compose up -d --build --wait
+```
+
+Abre http://localhost:3001. Docker compila React y ejecuta el backend Node en un
+solo contenedor. El frontend usa la API del mismo contenedor; no necesita Vercel
+para funcionar localmente. Puedes cambiar el puerto creando un archivo `.env`
+con `MONITOR_PORT=3002` y volviendo a ejecutar el comando.
+
+```bash
+docker compose ps
+docker compose logs --tail=100 app
+docker compose stop
+docker compose start
+```
+
+`Dockerfile` define la imagen y `compose.yaml` configura el servicio, el puerto y
+la persistencia. `.dockerignore` evita incluir datos personales, secretos y
+dependencias locales en la imagen. La compilación se realiza en una etapa
+separada y el servidor se ejecuta con el usuario `node`.
+
+### Datos existentes y respaldo
+
+La carpeta `./data` de tu laptop se monta en `/app/data` del contenedor. Se usan
+las cuentas y productos de `data/db.json`, sin importarlos ni incluirlos en la
+imagen. Los datos sobreviven al reemplazo o eliminación del contenedor mientras
+conserves esa carpeta. Al arrancar se reanudan los monitoreos activos.
+
+No ejecutes el servidor con npm y Docker simultáneamente sobre el mismo archivo:
+ambos mantienen el estado en memoria y podrían sobrescribir cambios. Tampoco
+escales este servicio a varias instancias con el almacenamiento JSON actual.
+
+Para respaldar de forma consistente en PowerShell, detén primero todas las
+instancias que escriban en `data/db.json`:
+
+```powershell
+docker compose stop
+Copy-Item -LiteralPath data/db.json -Destination ("data/backup-" + (Get-Date -Format yyyyMMdd-HHmmss) + ".json")
+docker compose start
+```
+
+Para actualizar el código, ejecuta de nuevo `docker compose up -d --build --wait`.
+Para retirar el contenedor y su red, usa `docker compose down`; la carpeta `data`
+permanece en tu laptop. Docker Desktop y el equipo deben estar encendidos para
+que las revisiones locales continúen.
+
+### Render, Vercel y PostgreSQL
+
+Consulta [DEPLOYMENT.md](DEPLOYMENT.md) para los valores de Vercel, el estado
+actual de Render y la propuesta Docker en `render.docker.example.yaml`.
+La propuesta remota mantiene Free por eleccion del usuario, sin disco persistente,
+y requiere respaldar los datos de Render antes de aplicarla. Es para demostracion
+mientras no se implemente persistencia; no se importa automaticamente.
+
+Esta configuración dockeriza la aplicación actual, que todavía guarda sus datos
+en JSON. No crea PostgreSQL ni migra datos automáticamente. Esa migración requiere
+tablas, consultas y un proceso de importación aparte.
+
+Para desplegar esta imagen en Render, selecciona el entorno Docker y el
+`Dockerfile` de la raíz. Usa una sola instancia y configura un disco persistente
+montado en `/app/data` con permisos de escritura para el usuario `node` (UID 1000),
+o migra antes a PostgreSQL. Sin persistencia, los cambios del JSON se pierden al
+recrear el contenedor. El puerto respeta la variable `PORT` de Render y el servidor
+escucha en `0.0.0.0`. No se ha cambiado ningún despliegue remoto.
+
+Vercel puede seguir alojando React y enviando `/api` a Render mediante
+`vercel.json`. Docker local usa su propia carpeta `data`; no sincroniza datos con
+Render. Un servicio que se suspende por inactividad interrumpe el programador
+interno, por lo que monitorear continuamente requiere un servicio siempre activo.
+
 ## Ejecutar en desarrollo
 
 ```bash
