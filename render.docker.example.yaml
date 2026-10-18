@@ -14,7 +14,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/me
-    autoDeployTrigger: off
+    autoDeployTrigger: "off"
     envVars:
       - key: NODE_ENV
         value: production
