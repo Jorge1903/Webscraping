@@ -53,8 +53,10 @@ pero esto no convierte Free en un servicio siempre activo.
 
 Con DATABASE_URL, el backend guarda usuarios, sesiones, monitoreos y resultados
 como estado JSONB en la tabla monitor_state. Se mantiene una sola instancia de
-backend y las escrituras se serializan con revision para evitar sobrescrituras
-silenciosas. Si PostgreSQL falla, no se usa un archivo temporal como sustituto.
+backend y las escrituras se serializan. Cada arranque reclama una identidad de
+escritura: el proceso anterior deja de guardar durante el traspaso del despliegue,
+sin sobrescribir al proceso nuevo. Si PostgreSQL falla, no se usa un archivo
+temporal como sustituto. La importacion manual no reclama esa identidad.
 
 Al inicializar una base vacia, se importa MONITOR_DB_PATH si existe. No se
 sobrescriben bases con datos ni se migran sesiones de otro entorno. El JSON local

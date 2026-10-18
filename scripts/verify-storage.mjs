@@ -24,8 +24,12 @@ try {
   await second.health();
   if (connectionString) {
     first = await openStorage({ file, connectionString });
-    await second.save(second.state);
-    await assert.rejects(first.save(first.state), /Otra instancia/);
+    await first.save(first.state);
+    await assert.rejects(second.save(second.state), error => error.status === 503);
+    await assert.rejects(second.health(), error => error.status === 503);
+    const reader = await openStorage({ file, connectionString, acquireWriter: false });
+    await reader.close();
+    await first.save(first.state); // Import/inspection must not steal ownership.
   }
   console.log(`OK: persistencia tras reinicio, migración y salud (${second.kind}).`);
 } finally {

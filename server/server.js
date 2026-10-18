@@ -538,7 +538,7 @@ async function handleApi(req, res, url) {
       const data = await scrapeHtml(job);
       return sendJson(res, 200, { data });
     } catch (error) {
-      return sendJson(res, 400, { error: error.message });
+      return sendJson(res, error.status || 400, { error: error.message });
     }
   }
 
@@ -655,7 +655,7 @@ async function main() {
         await serveStatic(req, res, url);
       }
     } catch (error) {
-      sendJson(res, 500, { error: error.message || "Error interno" });
+      sendJson(res, error.status || 500, { error: error.message || "Error interno" });
     }
   });
 
@@ -670,7 +670,6 @@ async function main() {
     clearInterval(schedulerTimer);
     server.close(async () => {
       while (activeChecks) await new Promise(resolve => setTimeout(resolve, 100));
-      await saveDb();
       await storage.close();
       process.exit(0);
     });
